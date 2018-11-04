@@ -1,5 +1,5 @@
 # cutspar
-cutspar allows to create a notch top &amp; bottom of two airfoils .dat files for spar caps. It makes sure that the features of the notches are synchronized in both .dat files so it can be correctly cut with a CNC hot-wire cutter.
+cutspar modifies a pair of .dat airfoil files to create the notches required for applying spar caps on a wing panel foam core. The software deals with synchronizing the features of the notches so it can be correctly cut on the CNC hot-wire cutter.
 
 cutspar -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk
 
