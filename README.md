@@ -26,5 +26,5 @@ cutspar -I ../../SynerJ-90.dat -i ../../SynerJ-80.dat -C 221.5;31.62;81.62;2;32.
 The software will cope with spar of different width, position or thickness at each panel ends, or even top & bottom, keeping the points in the .dat files correcly synchronized.
 
 # To compile
-Compiled on Windows 10 using Code::Blocks v17.12
+Compiled on Windows 10 using Code::Blocks v17.12. 
 This POSIX compliant code should compile just as fine on Linux or Apple.
