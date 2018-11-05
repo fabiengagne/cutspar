@@ -4,8 +4,11 @@ cutspar modifies a pair of .dat airfoil files to create the notches required for
 cutspar -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk
 
 -I rootinput.dat : input airfoil file name at root of panel (airfoil .dat)
+
 -i tipinput.dat  : input airfoil file name at tip of panel (airfoil .dat)
+
 -O rootoutput.dat : output airfoil file names for root
+
 -o tipoutput.dat : output airfoil file names for tip
 -C specifications at root (see below for the mandatory 7 parameters)
 -c specifications at tip
