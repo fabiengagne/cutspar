@@ -23,7 +23,7 @@ efwd, eaft, ifwd and iaft are distances relative to the LE at their respective\n
 Example:
 cutspar -I ../../SynerJ-90.dat -i ../../SynerJ-80.dat -C 221.5;31.62;81.62;2;32.62;82.62;2 -c 196.5;20.54;70.54;2;21.54;71.54;2 -O Mid2-root.dat -o Mid2-tip.dat
 
-The software will cope with spar of different width, position or thickness at each panel ends, or even top & bottom, keeping the points in the .dat files correcly synchronized.
+The software will cope with spar of different widths, position or thickness at each panel ends, or even top & bottom, keeping the points in the .dat files correctly synchronized.
 
 # To compile
 Compiled on Windows 10 using Code::Blocks v17.12 http://www.codeblocks.org/ 
