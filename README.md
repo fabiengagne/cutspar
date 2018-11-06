@@ -11,6 +11,8 @@ cutspar -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C c
 
 -o tipoutput.dat : output airfoil file names for tip
 
+-x Exit and re-enter the leading edge. Allows the LE to cool down before cutting the other half of the profile.
+
 -C specifications at root (see below for the mandatory 7 parameters)
 
 -c specifications at tip

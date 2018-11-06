@@ -5,6 +5,10 @@ cutspar allows to create a notch top & bottom of two airfoils .dat files for spa
 caps. It makes sure that the features of the notches are synchronized in both .dat
 files so it can be correctly cut with a CNC hot-wire cutter.
 
+History:
+ v1.0   Initial release
+ v1.1   Added -x option
+
 Compiled on Windows 10 using Code::Blocks v17.12
 */
 
@@ -15,6 +19,8 @@ Compiled on Windows 10 using Code::Blocks v17.12
 #include <math.h>
 #include <libgen.h>
 
+#define VERSION "v1.1"
+
 #define MAX(a,b) \
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
@@ -24,8 +30,6 @@ Compiled on Windows 10 using Code::Blocks v17.12
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
-
-//#define WITHIN(n,a,b) (((n)>=(a)) - ((n)<=(b)) == 0)
 
 typedef struct
 {
@@ -276,12 +280,13 @@ void usage (char *pname)
     printf("spar caps. It makes sure that the features of the notches are synchronized in\n");
     printf("both .dat files so it can be correctly cut with a CNC hot-wire cutter.\n\n");
 
-    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk\n\n", pname);
+    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x]\n\n", pname);
 
     printf("-I rootinput.dat : input airfoil file name at root of panel (airfoil .dat)\n");
     printf("-i tipinput.dat  : input airfoil file name at tip of panel (airfoil .dat)\n");
     printf("-O rootoutput.dat : output airfoil file names for root\n");
     printf("-o tipoutput.dat : output airfoil file names for tip\n");
+    printf("-x Exit and re-enter the leading edge. Allows the LE to cool down before cutting\n   the other half of the profile.\n");
     printf("-C specifications at root (see below for the mandatory 7 parameters)\n");
     printf("-c specifications at tip\n");
     printf("  chord : chord of at this station (root or tip)\n");
@@ -298,7 +303,7 @@ void usage (char *pname)
     printf("Example:\n");
     printf("cutspar -I ../../SynerJ-90.dat -i ../../SynerJ-80.dat -O Mid2-root.dat -o Mid2-tip.dat -C 221.5;31.62;81.62;1.2;32.62;82.62;1.2 -c 196.5;20.54;70.54;1.1;21.54;71.54;1.1\n\n");
 
-    printf("cutspar v1.0 %s\n", __DATE__);
+    printf("cutspar %s %s\n", VERSION, __DATE__);
     printf("Fabien Gagne, 2018\n");
 }
 
@@ -306,6 +311,13 @@ int main(int argc, char *argv[])
 {
     int opt;
     int ns = 11;  // smooth the stretching/compression on this many points, before and after the spar.
+
+    struct {  // Exit and re-enter the leading edge
+        int     active; // 0=off, 1=on
+        double  dx, dy; // width & height, in mm
+    } xle = { 0,            // default=off
+          10.0, 10.0
+    };
 
     stationdef_t root;
     stationdef_t tip;
@@ -327,7 +339,7 @@ int main(int argc, char *argv[])
         usage(argv[0]);
         exit(-1);
     }
-    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:")) != -1 )
+    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:x")) != -1 )
     {
         int n;
 
@@ -357,9 +369,14 @@ int main(int argc, char *argv[])
                 }
                 break;
 
+            case 'x':
+                xle.active = 1;
+                break;
+
             case 'h':
                 usage(argv[0]);
                 exit(-1);
+
         }
     }
 
@@ -533,9 +550,46 @@ int main(int argc, char *argv[])
                 goto skip;
             }
         }
-        // its just a regular point in between our zones of interest
+
+        // Its just a regular point in between our zones of interest, copy.
         root.op[root.on++] = root.p[i];
         tip.op[tip.on++] = tip.p[i];
+
+        // At the LE, insert the points for the exit & re-entry at the leading edge, if requested.
+        if ( xle.active && i == root.le)
+        {
+            int dir = -fsignnum(root.p[i-1].y -  root.p[i].y); // 'dir' will be negative when going down
+
+            /*  --      The following will create a shape like this in front of the LE, outside the profile.
+               |   \    We exit the LE at 45 degrees, and re-enter at 45 degrees.
+               |   /
+                --
+            */
+
+            root.op[root.on].x   = -xle.dx/2 + root.p[i].x;
+            root.op[root.on++].y = dir * xle.dy + root.p[i].y;
+            tip.op[tip.on].x     = -xle.dx/2 + tip.p[i].x;
+            tip.op[tip.on++].y   = dir * xle.dy + tip.p[i].y;
+
+            root.op[root.on].x   = -xle.dx + root.p[i].x;
+            root.op[root.on++].y = dir * xle.dy + root.p[i].y;
+            tip.op[tip.on].x     = -xle.dx + tip.p[i].x;
+            tip.op[tip.on++].y   = dir * xle.dy + tip.p[i].y;
+
+            root.op[root.on].x   = -xle.dx + root.p[i].x;
+            root.op[root.on++].y = -dir * xle.dy + root.p[i].y;
+            tip.op[tip.on].x     = -xle.dx + tip.p[i].x;
+            tip.op[tip.on++].y   = -dir * xle.dy + tip.p[i].y;
+
+            root.op[root.on].x   = -xle.dx/2 + root.p[i].x;
+            root.op[root.on++].y =  -dir * xle.dy + root.p[i].y;
+            tip.op[tip.on].x     = -xle.dx/2 + tip.p[i].x;
+            tip.op[tip.on++].y   = -dir * xle.dy + tip.p[i].y;
+
+            root.op[root.on++] = root.p[i]; // then return to the LE point
+            tip.op[tip.on++]   = tip.p[i];
+        }
+
     skip:
         i++;
     }
