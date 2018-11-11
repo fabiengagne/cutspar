@@ -34,12 +34,14 @@ Compiled on Windows 10 using Code::Blocks v17.12
 typedef struct
 {
     double x, y;
-} coord_t;
+} point_t;
+
+point_t *fabien;
 
 typedef struct
 {
-    coord_t fwd;  // spar forward edge (.x is specified by the user)
-    coord_t aft;    // spar aft edge (.x is specified by the user)
+    point_t fwd;  // spar forward edge (.x is specified by the user)
+    point_t aft;    // spar aft edge (.x is specified by the user)
 
     int    fwd_idx, aft_idx; // same as above, but as indexes into stationdef_t.p[]
 
@@ -55,14 +57,15 @@ typedef struct
 
     char desc[81];  // first line of the .dat file (text description)
     double chord;
+    double twist;   // rotation angle of the profile (washout)
 
     spar_t spar[2];  // 0=extrados, 1=intrados
 
     int n;              // number of points in p[]
-    coord_t p[1000];    // array of points from the .dat, scaled to chord
+    point_t p[1000];    // array of points from the .dat, and scaled to chord
 
     int on;             // number of points in op[]
-    coord_t op[1000];   // array of computed points
+    point_t op[1000];   // array of computed points, still scaled to chord
 
     int le;             // index into p[] of the leading edge
 } stationdef_t;
@@ -78,22 +81,46 @@ int within(double x, double a, double b)
     return 0;
 }
 
-
-double gett(double t, coord_t *p0, coord_t *p1)
+// sign of a integer
+int isignnum ( int val )
 {
-    double alpha = 0.5f; // 0.5 = centripetal catmull-rom spline
+    return ( (0<val) - (val<0) );
+}
+
+// sign of a double
+int fsignnum ( double val )
+{
+    return ( (0<val) - (val<0) );
+}
+
+// return the integral (sum of) a serie of values
+double integral(double *func, int n)
+{
+    double sum=0;
+    int i;
+
+    for(i=0;i<n;i++)
+        sum += func[i];
+    return sum;
+}
+
+
+
+double gett(double t, point_t *p0, point_t *p1)
+{
+    double const alpha = 0.5f; // 0.5 = centripetal catmull-rom spline
     double a = pow((p1->x - p0->x), 2.0f) + pow((p1->y - p0->y), 2.0f);
-    double b = pow(a, 0.5f);
+    double b = pow(a, 0.5f); // square root
     double c = pow(b, alpha);
 
     return (c + t);
 }
 
 // Centripetal Catmull-Rom interpolation. Interpolates any point between p[1] and p[2], given 4 control points.
-double CatmullRom ( double x, coord_t *p )
+double CatmullRom ( double x, point_t *p )
 {
     double t0, t1, t2, t3;
-    coord_t a1, a2, a3, b1, b2, c;
+    point_t a1, a2, a3, b1, b2, c;
     double t;
 
     t0 = 0;
@@ -131,7 +158,25 @@ double CatmullRom ( double x, coord_t *p )
     return c.y;
 }
 
+// Adapted from Nils Pipenbrinck on https://stackoverflow.com/questions/2259476/rotating-a-point-about-another-point-2d
+point_t rotate_point(float cx,float cy,float angle, point_t p)
+{
+  float s = sin(angle);
+  float c = cos(angle);
 
+  // translate point back to origin:
+  p.x -= cx;
+  p.y -= cy;
+
+  // rotate point
+  double xnew = p.x * c - p.y * s;
+  double ynew = p.x * s + p.y * c;
+
+  // translate point back:
+  p.x = xnew + cx;
+  p.y = ynew + cy;
+  return p;
+}
 
 int loaddatfile ( stationdef_t *station )
 {
@@ -171,8 +216,6 @@ int loaddatfile ( stationdef_t *station )
 
     fclose (f);
 
-
-
     printf("%d points\n", station->n);
     return 0;
 
@@ -203,21 +246,44 @@ int savedatfile ( stationdef_t *station )
     return fclose(f);
 }
 
-// given an arbitrary x and a face (extrados or intrados), interpolate a y with the catmull-rom
-double find_y ( double x, int face, stationdef_t *station)
+// given an arbitrary x value and face (extrados or intrados), interpolate a y with a Cetripetal Catmull-Rom spline
+double find_y ( double x, int dos, point_t *p, int n)
 {
-    // search the index of the points where 'x' lies in-between two points
-    for (int i=2; i<station->n-1; i++)
+    int first=-1, second=-1;
+    int fd;
+
+    // Search the index of the points where 'x' lies in-between two points.
+    // Of course we will find at least two such points, on each on the intrados and extrados,
+    // actually normally two points but sometimes more if the serie of points contain
+    // a straight vertical segment.
+
+    for (int i=2; i<n-1; i++)
     {
-        int dos = (station->p[i].y >= 0) ? 0:1; // extrados/intrados
-
-        if ( dos == face && (within(x, station->p[i-1].x, station->p[i].x)) )
-            return CatmullRom(x, &station->p[i-2]);
+        if ( first == -1 && (within(x, p[i-1].x, p[i].x)))
+            first = i++;
+        else if (second == -1 && (within(x, p[i-1].x, p[i].x)) /*&&
+                 p[i].x != p[first].x &&
+                 p[i-1].x != p[first].x*/ )
+            second = i;
     }
-    printf("oops %f %d\n", x, face);
-    return 0;
-}
 
+    if (first == -1)
+    {
+        printf("oops %f %d\n", x, dos);
+        return 0;
+    }
+    else if (second == -1) // this may happen right at the LE, where X does not change much, but it should still work
+        return CatmullRom(x, &p[first-2]);
+
+    if ( fsignnum(p[first].y - p[second].y) > 0 )
+         fd = 0; // 'first' is on the extrados and 'second' is on the intrados
+    else fd = 1; // 'first' is on the intrados and 'second' is on the extrados
+
+
+    if ( fd == dos )
+         return CatmullRom(x, &p[first-2]);
+    else return CatmullRom(x, &p[second-2]);
+}
 
 void findspar ( stationdef_t *station )
 {
@@ -236,36 +302,14 @@ void findspar ( stationdef_t *station )
             station->spar[dos].fwd_idx = i;
     }
 
-    // compute the y coordinates of the spar edges using the catmull-rom interpolation
+    // Compute the y coordinates of the spar edges using the Catmull-Rom interpolation
     for (dos=0; dos<2; dos++)
     {
-        station->spar[dos].fwd.y = find_y(station->spar[dos].fwd.x, dos, station);
-        station->spar[dos].aft.y = find_y(station->spar[dos].aft.x, dos, station);
+        station->spar[dos].fwd.y = find_y(station->spar[dos].fwd.x, dos, &station->p[0], station->n);
+        station->spar[dos].aft.y = find_y(station->spar[dos].aft.x, dos, &station->p[0], station->n);
     }
 }
 
-
-        // sign of a integer
-int isignnum ( int val )
-{
-    return ( (0<val) - (val<0) );
-}
-
-// sign of a double
-int fsignnum ( double val )
-{
-    return ( (0<val) - (val<0) );
-}
-
-double integral(double *func, int n)
-{
-    double sum;
-    int i;
-
-    for(sum=0, i=0;i<n;i++)
-        sum += func[i];
-    return sum;
-}
 
 // Find the scaling factor that make it such that the integral(func) = target value
 double scaledx(double *func, int n, double target )
@@ -273,20 +317,60 @@ double scaledx(double *func, int n, double target )
     return target / integral(func,n);
 }
 
+// rotate an airfoil
+void twist ( point_t *points, int n, double angle, double percent, double chord)
+{
+    float s = sin(-angle * 3.141592653589/180);
+    float c = cos(-angle * 3.141592653589/180);
+    point_t pv;  // pivot point coordinate
+    point_t *p;
+    int i;
+
+    if ( angle == 0 )
+        return; // no rotation needed
+
+    if ( percent == 0 )     // rotate around LE
+        pv.x = pv.y = 0;
+    else  // rotate around a point on the extrados/intrados
+    {
+        int dos = percent>0?0:1; // positive mean to select point on extrados, negative=intrados
+        pv.x = fabs(percent)/100.0 * chord;
+        pv.y = find_y(pv.x, dos, points, n);
+    }
+
+    for(p=points, i=0; i<n; i++, p++)
+    {
+        // translate point to "origin = pivot point"
+        p->x -= pv.x;
+        p->y -= pv.y;
+
+        // rotate point around this temporarily origin
+        double newx = p->x * c - p->y * s;
+        double newy = p->x * s + p->y * c;
+
+        // translate point back
+        p->x = newx + pv.x;
+        p->y = newy + pv.y;
+    }
+}
+
 
 void usage (char *pname)
 {
-    printf("cutspar allows to create a notch top & bottom of two airfoils .dat files for\n");
-    printf("spar caps. It makes sure that the features of the notches are synchronized in\n");
-    printf("both .dat files so it can be correctly cut with a CNC hot-wire cutter.\n\n");
+    printf("Cutspar allows to create a contoured notch top & bottom of two airfoils .dat\n");
+    printf("files for spar caps. The spar caps follows the curvature of the airfoil, that\n");
+    printf("is, they're not necessarily flat pieces of precured carbon fiber. Cutspar makes\n");
+    printf("sure that the features of the notches are synchronized in both .dat files so it\n");
+    printf("can be correctly cut with a CNC hot-wire cutter such as GMFC.\n\n");
 
-    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x]\n\n", pname);
+    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint]\n\n", pname);
 
     printf("-I rootinput.dat : input airfoil file name at root of panel (airfoil .dat)\n");
     printf("-i tipinput.dat  : input airfoil file name at tip of panel (airfoil .dat)\n");
     printf("-O rootoutput.dat : output airfoil file names for root\n");
     printf("-o tipoutput.dat : output airfoil file names for tip\n");
-    printf("-x Exit and re-enter the leading edge. Allows the LE to cool down before cutting\n   the other half of the profile.\n");
+    printf("-x Exit and re-enter the leading edge. Allows the LE to cool down before\n   cutting the other half of the profile.\n");
+    printf("-t roottwist;tiptwist[;pivotpoint] : rotate the profiles by this \n   amount (degrees) around pivotpoint in percent from LE;\n   pivotpoint>0=extrados; pivotpoint<0=intrados; default=-70.\n");
     printf("-C specifications at root (see below for the mandatory 7 parameters)\n");
     printf("-c specifications at tip\n");
     printf("  chord : chord of at this station (root or tip)\n");
@@ -311,35 +395,39 @@ int main(int argc, char *argv[])
 {
     int opt;
     int ns = 11;  // smooth the stretching/compression on this many points, before and after the spar.
+    double pivotpointpc = -70;  // Default pivot point is 70% chord on the intrados
 
     struct {  // Exit and re-enter the leading edge
         int     active; // 0=off, 1=on
         double  dx, dy; // width & height, in mm
     } xle = { 0,            // default=off
-          10.0, 10.0
+          10.0, 10.0        // default=10mm x 10mm block
     };
 
     stationdef_t root;
     stationdef_t tip;
 
-    coord_t prootfwd[2][50], ptipfwd[2][50];  // new serie of points forward of the spar
-    coord_t prootaft[2][50], ptipaft[2][50];  // new serie of points aft of the spar
-    coord_t prootspar[2][100], ptipspar[2][100]; // new serie of point at the spar
+    point_t prootfwd[2][50], ptipfwd[2][50];  // new serie of points forward of the spar
+    point_t prootaft[2][50], ptipaft[2][50];  // new serie of points aft of the spar
+    point_t prootspar[2][100], ptipspar[2][100]; // new serie of point at the spar
     int nspar[2]; // number of points of the spar (0=extrados, 1=intrados), that is number of elements in prootspar[] and ptipspar[]
 
     int sfwd[2], saft[2]; // indexes where the smoothing ends, before and after the spar
+
+    int xdir, xi = -1;
 
 
     memset (&root, 0, sizeof(root));
     memset (&tip, 0, sizeof(tip));
 
+    fabien = &root.p[0];
 
     if (argc <= 1)
     {
         usage(argv[0]);
         exit(-1);
     }
-    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:x")) != -1 )
+    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:xt:")) != -1 )
     {
         int n;
 
@@ -352,7 +440,7 @@ int main(int argc, char *argv[])
             case 'o': tip.o_fname = optarg;  break;
 
             case 'C':   // root specifications
-                n = sscanf(optarg, "%lf;%lf;%lf;%lf;%lf;%lf;%lf\n", &root.chord, &root.spar[0].fwd.x, &root.spar[0].aft.x, &root.spar[0].thick, &root.spar[1].fwd.x, &root.spar[1].aft.x, &root.spar[1].thick );
+                n = sscanf(optarg, "%lf;%lf;%lf;%lf;%lf;%lf;%lf", &root.chord, &root.spar[0].fwd.x, &root.spar[0].aft.x, &root.spar[0].thick, &root.spar[1].fwd.x, &root.spar[1].aft.x, &root.spar[1].thick );
                 if ( n != 7 || root.spar[0].fwd.x > root.spar[0].aft.x || root.spar[0].aft.x > root.chord || root.spar[1].fwd.x > root.spar[1].aft.x || root.spar[1].aft.x > root.chord)
                 {
                     usage(argv[0]);
@@ -361,8 +449,17 @@ int main(int argc, char *argv[])
                 break;
 
             case 'c': // tip specifications
-                n = sscanf(optarg, "%lf;%lf;%lf;%lf;%lf;%lf;%lf\n", &tip.chord, &tip.spar[0].fwd.x, &tip.spar[0].aft.x, &tip.spar[0].thick, &tip.spar[1].fwd.x, &tip.spar[1].aft.x, &tip.spar[1].thick );
+                n = sscanf(optarg, "%lf;%lf;%lf;%lf;%lf;%lf;%lf", &tip.chord, &tip.spar[0].fwd.x, &tip.spar[0].aft.x, &tip.spar[0].thick, &tip.spar[1].fwd.x, &tip.spar[1].aft.x, &tip.spar[1].thick );
                 if ( n != 7 || tip.spar[0].fwd.x > tip.spar[0].aft.x || tip.spar[0].aft.x > tip.chord || tip.spar[1].fwd.x > tip.spar[1].aft.x || tip.spar[1].aft.x > tip.chord )
+                {
+                    usage(argv[0]);
+                    exit(-1);
+                }
+                break;
+
+            case 't':
+                n = sscanf(optarg, "%lf;%lf;%lf\n", &root.twist, &tip.twist, &pivotpointpc );
+                if ( (n == 3 && fabs(pivotpointpc) > 100) || n < 2)
                 {
                     usage(argv[0]);
                     exit(-1);
@@ -412,10 +509,11 @@ int main(int argc, char *argv[])
     findspar(&root);
     findspar(&tip);
 
+    // sanity check
     if (root.le != tip.le)
         printf("Warning: LE is not positionned at same point number in both files. This may not\nwork. If they differ by 3 points or less, it may be okay.\n");
 
-    // Adjust the smoothing window so that it not be any closer than 3 points from the leading edge
+    // Adjust the smoothing window so that it not any closer than 3 points from the leading edge
     ns = MIN(abs(root.spar[0].fwd_idx - root.le), abs(root.spar[1].fwd_idx - root.le) );
     ns = MIN(ns, abs(tip.spar[0].fwd_idx - root.le) );
     ns = MIN(ns, abs(tip.spar[1].fwd_idx - root.le) );
@@ -471,10 +569,10 @@ int main(int argc, char *argv[])
             ptipaft[dos][i].x  =  tip.p[saft[dos]].x + i*taft_dx/(double)ns;
 
             // interpolate their 'y' coordinates
-            prootfwd[dos][i].y = find_y(prootfwd[dos][i].x, dos, &root);
-            prootaft[dos][i].y = find_y(prootaft[dos][i].x, dos, &root);
-            ptipfwd[dos][i].y  = find_y(ptipfwd[dos][i].x, dos, &tip);
-            ptipaft[dos][i].y  = find_y(ptipaft[dos][i].x, dos, &tip);
+            prootfwd[dos][i].y = find_y(prootfwd[dos][i].x, dos, &root.p[0], root.n);
+            prootaft[dos][i].y = find_y(prootaft[dos][i].x, dos, &root.p[0], root.n);
+            ptipfwd[dos][i].y  = find_y(ptipfwd[dos][i].x, dos, &tip.p[0], tip.n);
+            ptipaft[dos][i].y  = find_y(ptipaft[dos][i].x, dos, &tip.p[0], tip.n);
         }
 
         // compute the points for the spar itself
@@ -489,8 +587,8 @@ int main(int argc, char *argv[])
             ptipspar[dos][i].x  =  tip.spar[dos].aft.x + i*tspar_dx/nspar[dos];
 
             // interpolate their 'y' coordinates
-            prootspar[dos][i].y = find_y(prootspar[dos][i].x, dos, &root) + (dos==0?-1:1)*root.spar[dos].thick;
-            ptipspar[dos][i].y  = find_y(ptipspar[dos][i].x, dos, &tip)   + (dos==0?-1:1)*root.spar[dos].thick;
+            prootspar[dos][i].y = find_y(prootspar[dos][i].x, dos, &root.p[0], root.n) + (dos==0?-1:1)*root.spar[dos].thick;
+            ptipspar[dos][i].y  = find_y(ptipspar[dos][i].x, dos, &tip.p[0], tip.n)   + (dos==0?-1:1)*root.spar[dos].thick;
         }
     }
 
@@ -558,40 +656,70 @@ int main(int argc, char *argv[])
         // At the LE, insert the points for the exit & re-entry at the leading edge, if requested.
         if ( xle.active && i == root.le)
         {
-            int dir = -fsignnum(root.p[i-1].y -  root.p[i].y); // 'dir' will be negative when going down
-
-            /*  --      The following will create a shape like this in front of the LE, outside the profile.
-               |   \    We exit the LE at 45 degrees, and re-enter at 45 degrees.
-               |   /
-                --
-            */
-
-            root.op[root.on].x   = -xle.dx/2 + root.p[i].x;
-            root.op[root.on++].y = dir * xle.dy + root.p[i].y;
-            tip.op[tip.on].x     = -xle.dx/2 + tip.p[i].x;
-            tip.op[tip.on++].y   = dir * xle.dy + tip.p[i].y;
-
-            root.op[root.on].x   = -xle.dx + root.p[i].x;
-            root.op[root.on++].y = dir * xle.dy + root.p[i].y;
-            tip.op[tip.on].x     = -xle.dx + tip.p[i].x;
-            tip.op[tip.on++].y   = dir * xle.dy + tip.p[i].y;
-
-            root.op[root.on].x   = -xle.dx + root.p[i].x;
-            root.op[root.on++].y = -dir * xle.dy + root.p[i].y;
-            tip.op[tip.on].x     = -xle.dx + tip.p[i].x;
-            tip.op[tip.on++].y   = -dir * xle.dy + tip.p[i].y;
-
-            root.op[root.on].x   = -xle.dx/2 + root.p[i].x;
-            root.op[root.on++].y =  -dir * xle.dy + root.p[i].y;
-            tip.op[tip.on].x     = -xle.dx/2 + tip.p[i].x;
-            tip.op[tip.on++].y   = -dir * xle.dy + tip.p[i].y;
-
-            root.op[root.on++] = root.p[i]; // then return to the LE point
-            tip.op[tip.on++]   = tip.p[i];
+            // We can't insert the points for the X now because we need to rotate the airfoil first.
+            // Save the point position and direction of the X
+            xdir = -fsignnum(root.p[i-1].y -  root.p[i].y); // 'dir' will be negative when going down
+            xi = root.on; // index of where we will insert the points
         }
 
     skip:
         i++;
+    }
+
+    // Apply the twist
+    twist(&root.op[0], root.on, root.twist, pivotpointpc, root.chord);
+    twist(&tip.op[0],  tip.on,  tip.twist,  pivotpointpc, tip.chord);
+
+    // Insert the X at the LE, if enabled
+    if ( xi != -1 )
+    {
+        point_t rle, tle;    // leading edge coordinates (after rotation)
+
+        rle = root.op[xi];
+        tle = tip.op[xi];
+
+        // Make room for 5 more points in root.op[] and tip.op[] to insert the X at the LE
+        xi++;
+        for (int i = root.on-1; i >= xi; i--)
+        {
+            root.op[i+5] = root.op[i];
+            tip.op[i+5]  = tip.op[i];
+        }
+        root.on += 5;
+        tip.on += 5;
+
+        /*  --      The following will create a shape like this in front of the LE, outside the profile.
+           |   \    It results into a geometry that exit the LE at 45 degrees, and re-enter at 45 degrees,
+           |   /    approximately.
+            --
+        */
+
+        root.op[xi].x = -xle.dx/2 + rle.x;
+        root.op[xi].y = xdir * xle.dy/2 + rle.y;
+        tip.op[xi].x  = -xle.dx/2 + tle.x;
+        tip.op[xi].y  = xdir * xle.dy/2 + tle.y;
+        xi++;
+
+        root.op[xi].x = -xle.dx + rle.x;
+        root.op[xi].y = xdir * xle.dy/2 + rle.y;
+        tip.op[xi].x  = -xle.dx + tle.x;
+        tip.op[xi].y  = xdir * xle.dy/2 + tle.y;
+        xi++;
+
+        root.op[xi].x = -xle.dx + rle.x;
+        root.op[xi].y = -xdir * xle.dy/2 + rle.y;
+        tip.op[xi].x  = -xle.dx + tle.x;
+        tip.op[xi].y  = -xdir * xle.dy/2 + tle.y;
+        xi++;
+
+        root.op[xi].x = -xle.dx/2 + rle.x;
+        root.op[xi].y =  -xdir * xle.dy/2 + rle.y;
+        tip.op[xi].x  = -xle.dx/2 + tle.x;
+        tip.op[xi].y  = -xdir * xle.dy/2 + tle.y;
+        xi++;
+
+        root.op[xi] = rle; // then return to the LE point
+        tip.op[xi]  = tle;
     }
 
     // Save the output files
