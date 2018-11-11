@@ -36,8 +36,6 @@ typedef struct
     double x, y;
 } point_t;
 
-point_t *fabien;
-
 typedef struct
 {
     point_t fwd;  // spar forward edge (.x is specified by the user)
@@ -62,10 +60,10 @@ typedef struct
     spar_t spar[2];  // 0=extrados, 1=intrados
 
     int n;              // number of points in p[]
-    point_t p[1000];    // array of points from the .dat, and scaled to chord
+    point_t p[1500];    // array of points from the .dat, and scaled to chord
 
     int on;             // number of points in op[]
-    point_t op[1000];   // array of computed points, still scaled to chord
+    point_t op[1500];   // array of computed points, still scaled to chord
 
     int le;             // index into p[] of the leading edge
 } stationdef_t;
@@ -104,7 +102,13 @@ double integral(double *func, int n)
     return sum;
 }
 
-
+// distance between two points
+double dist(point_t p1, point_t p2)
+{
+    float dx = p1.x - p2.x;
+    float dy = p1.y - p2.y;
+    return ( pow(dx*dx + dy*dy, 0.5));
+}
 
 double gett(double t, point_t *p0, point_t *p1)
 {
@@ -181,7 +185,7 @@ point_t rotate_point(float cx,float cy,float angle, point_t p)
 int loaddatfile ( stationdef_t *station )
 {
     FILE *f;
-    double x, y, y1=0;
+    double x, y;
 
     printf ("Loading %s ", station->i_fname);
 
@@ -201,11 +205,6 @@ int loaddatfile ( stationdef_t *station )
     {
         if ( fscanf (f, "%lf %lf\n", &x, &y ) == 2 )
         {
-            // find the leading edge
-            if ( x < 0.1f && ((y>=0 && y1<0) || (y<=0 && y1>0)))
-                station->le = station->n;
-            y1 = y;
-
             // scale to chord
             station->p[station->n].x = x * station->chord;
             station->p[station->n].y = y * station->chord;
@@ -244,6 +243,23 @@ int savedatfile ( stationdef_t *station )
     }
     printf("%d points\n",station->on);
     return fclose(f);
+}
+
+// find the leading edge
+void find_le (stationdef_t *station)
+{
+    float y = 0;
+
+    for(int i=1; i < station->n; i++)
+    {
+        // find the leading edge
+        if ( station->p[i].x < 5.0 && ((station->p[i].y>=0 && y<0) || (station->p[i].y<=0 && y>0)))
+        {
+            station->le = i;
+            return;
+        }
+        y = station->p[i].y;
+    }
 }
 
 // given an arbitrary x value and face (extrados or intrados), interpolate a y with a Cetripetal Catmull-Rom spline
@@ -363,14 +379,16 @@ void usage (char *pname)
     printf("sure that the features of the notches are synchronized in both .dat files so it\n");
     printf("can be correctly cut with a CNC hot-wire cutter such as GMFC.\n\n");
 
-    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint]\n\n", pname);
+    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint] [-f] [-d density]\n\n", pname);
 
     printf("-I rootinput.dat : input airfoil file name at root of panel (airfoil .dat)\n");
     printf("-i tipinput.dat  : input airfoil file name at tip of panel (airfoil .dat)\n");
     printf("-O rootoutput.dat : output airfoil file names for root\n");
     printf("-o tipoutput.dat : output airfoil file names for tip\n");
-    printf("-x Exit and re-enter the leading edge. Allows the LE to cool down before\n   cutting the other half of the profile.\n");
+    printf("-x : Exit and re-enter the leading edge. Allows the LE to cool down before\n   cutting the other half of the profile.\n");
     printf("-t roottwist;tiptwist[;pivotpoint] : rotate the profiles by this \n   amount (degrees) around pivotpoint in percent from LE;\n   pivotpoint>0=extrados; pivotpoint<0=intrados; default=-70.\n");
+    printf("-f : Add one point to close the profiles\n");
+    printf("-d density : Densify such that there's a point every 'density' mm. In doubt,\n   use -d 1.2\n");
     printf("-C specifications at root (see below for the mandatory 7 parameters)\n");
     printf("-c specifications at tip\n");
     printf("  chord : chord of at this station (root or tip)\n");
@@ -385,7 +403,7 @@ void usage (char *pname)
     printf("efwd, eaft, ifwd and iaft are distances relative to the LE at their respective\nstation.\n\n");
 
     printf("Example:\n");
-    printf("cutspar -I ../../SynerJ-90.dat -i ../../SynerJ-80.dat -O Mid2-root.dat -o Mid2-tip.dat -C 221.5;31.62;81.62;1.2;32.62;82.62;1.2 -c 196.5;20.54;70.54;1.1;21.54;71.54;1.1\n\n");
+    printf("cutspar -I SynerJ-90.dat -i SynerJ-80.dat -O Mid2-root.dat -o Mid2-tip.dat -C 221.5;31.62;81.62;1.2;32.62;82.62;1.2 -c 196.5;20.54;70.54;1.1;21.54;71.54;1.1 -x -t -0.20;-0.35;-70 -f -d 1.2\n\n");
 
     printf("cutspar %s %s\n", VERSION, __DATE__);
     printf("Fabien Gagne, 2018\n");
@@ -407,6 +425,8 @@ int main(int argc, char *argv[])
     stationdef_t root;
     stationdef_t tip;
 
+    double density = 1000;  // default=do not densify
+
     point_t prootfwd[2][50], ptipfwd[2][50];  // new serie of points forward of the spar
     point_t prootaft[2][50], ptipaft[2][50];  // new serie of points aft of the spar
     point_t prootspar[2][100], ptipspar[2][100]; // new serie of point at the spar
@@ -415,19 +435,17 @@ int main(int argc, char *argv[])
     int sfwd[2], saft[2]; // indexes where the smoothing ends, before and after the spar
 
     int xdir, xi = -1;
-
+    int closeprofiles = 0;
 
     memset (&root, 0, sizeof(root));
     memset (&tip, 0, sizeof(tip));
-
-    fabien = &root.p[0];
 
     if (argc <= 1)
     {
         usage(argv[0]);
         exit(-1);
     }
-    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:xt:")) != -1 )
+    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:xt:fd:")) != -1 )
     {
         int n;
 
@@ -458,7 +476,7 @@ int main(int argc, char *argv[])
                 break;
 
             case 't':
-                n = sscanf(optarg, "%lf;%lf;%lf\n", &root.twist, &tip.twist, &pivotpointpc );
+                n = sscanf(optarg, "%lf;%lf;%lf", &root.twist, &tip.twist, &pivotpointpc );
                 if ( (n == 3 && fabs(pivotpointpc) > 100) || n < 2)
                 {
                     usage(argv[0]);
@@ -468,6 +486,20 @@ int main(int argc, char *argv[])
 
             case 'x':
                 xle.active = 1;
+                break;
+
+            case 'f':
+                closeprofiles = 1;
+                break;
+
+            case 'd':
+                density = atof(optarg);
+                if ( density < 0.1 )
+                {
+                    printf("Invalid value for -d option\n");
+                    usage(argv[0]);
+                    exit(-1);
+                }
                 break;
 
             case 'h':
@@ -504,6 +536,64 @@ int main(int argc, char *argv[])
         printf("Both dat files need to have the same number of points.\n");
         exit(-1);
     }
+
+    // Densify the airfoils by adding new points where the distance between points is greater than the criteria.
+    // This allows to CNC the foam with a smoother surface, avoiding facets.
+    for (int i=1; i < tip.n-2; )
+    {
+        double d = dist(tip.p[i], tip.p[i+1]);
+        if ( d > density)
+        {
+            double dx;
+            point_t p0p3r[4], p0p3t[4];
+            int n = d / density;  // number of points to add here
+
+            if ( (tip.n + n) > sizeof(tip.p)/sizeof(tip.p[0]) )
+            {
+                printf("Densification adds too many points, try increasing the -d number.\n");
+                exit(EXIT_FAILURE);
+            }
+
+            // Four points needed for the spline interpolation
+            p0p3r[0] = root.p[i-1];
+            p0p3r[1] = root.p[i];
+            p0p3r[2] = root.p[i+1];
+            p0p3r[3] = root.p[i+2];
+            p0p3t[0] = tip.p[i-1];
+            p0p3t[1] = tip.p[i];
+            p0p3t[2] = tip.p[i+1];
+            p0p3t[3] = tip.p[i+2];
+
+            // make room for 'n' new points
+            for (int j = tip.n-1; j > i; j--)
+            {
+                root.p[j+n] = root.p[j];
+                tip.p[j+n]  = tip.p[j];
+            }
+            root.n += n;
+            tip.n += n;
+
+            // interpolate 'n' new points
+            dx = root.p[i+n+1].x - root.p[i].x;
+            for (int m=1; m <= n; m++)
+            {
+                root.p[i+m].x = root.p[i].x + (dx / (n + 1)) * m;
+                root.p[i+m].y = CatmullRom(root.p[i+m].x, &p0p3r[0]);
+            }
+            dx = tip.p[i+n+1].x - tip.p[i].x;
+            for (int m=1; m <= n; m++)
+            {
+                tip.p[i+m].x = tip.p[i].x + (dx / (n + 1)) * m;
+                tip.p[i+m].y = CatmullRom(tip.p[i+m].x, &p0p3t[0]);
+            }
+            i += n;
+        }
+        else i++;
+    }
+
+    // Locate the leading edge
+    find_le(&root);
+    find_le(&tip);
 
     // Locate the beginning & end of the extrados and intrados spar
     findspar(&root);
@@ -664,6 +754,12 @@ int main(int argc, char *argv[])
 
     skip:
         i++;
+    }
+
+    if ( closeprofiles )
+    {
+        root.op[root.on++] = root.p[0];
+        tip.op[tip.on++] = tip.p[0];
     }
 
     // Apply the twist
