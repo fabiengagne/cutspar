@@ -1,5 +1,5 @@
 # cutspar
-Cutspar modifies a pair of .dat airfoil files to create the contoured notches required for applying spar caps on a wing panel foam core. The spar caps follow the curvature of the airfoil, that is, they're not necessarily and flat pieces of precured carbon fiber. The software deals with synchronizing the features of the notches so it can be correctly cut on the CNC hot-wire cutter.
+Cutspar modifies a pair of .dat airfoil files to create the contoured notches required for applying spar caps on a wing panel foam core. The spar caps follow the curvature of the airfoil, that is, they're not necessarily flat pieces of precured carbon fiber. The software deals with synchronizing the features of the notches so it can be correctly cut on the CNC hot-wire cutter.
 
 cutspar -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint]
 
