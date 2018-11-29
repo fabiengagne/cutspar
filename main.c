@@ -8,6 +8,8 @@ files so it can be correctly cut with a CNC hot-wire cutter.
 History:
  v1.0   Initial release
  v1.1   Added -x option
+ v1.2   Added -t option
+ v1.3   Added -w option
 
 Compiled on Windows 10 using Code::Blocks v17.12
 */
@@ -19,7 +21,7 @@ Compiled on Windows 10 using Code::Blocks v17.12
 #include <math.h>
 #include <libgen.h>
 
-#define VERSION "v1.1"
+#define VERSION "v1.3"
 
 #define MAX(a,b) \
    ({ __typeof__ (a) _a = (a); \
@@ -30,6 +32,8 @@ Compiled on Windows 10 using Code::Blocks v17.12
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
+
+#define PI 3.14159265359
 
 typedef struct
 {
@@ -66,6 +70,8 @@ typedef struct
     point_t op[1500];   // array of computed points, still scaled to chord
 
     int le;             // index into p[] of the leading edge
+
+    point_t channel;      // Wire channel position (center of hole)
 } stationdef_t;
 
 
@@ -370,16 +376,50 @@ void twist ( point_t *points, int n, double angle, double percent, double chord)
     }
 }
 
+int insertchannel (double channeldia, point_t rchannel, point_t tchannel, point_t *or, point_t *ot)
+{
+    double ar, at, a;
+    double r;
+    int n;
+    point_t rentry, tentry;
+
+    // The last point in 'or' and 'ot' is currently the last point at the bottom aft of the spar.
+    // This is where we will enter and exit the core towards the wire channel.
+    rentry = or[-1];
+    tentry = ot[-1];
+
+    ar = atan( (rentry.y - rchannel.y) / (rchannel.x - rentry.x) );
+    at = atan( (tentry.y - tchannel.y) / (tchannel.x - tentry.x) );
+    a = PI - (ar + at) / 2;
+
+    n = MAX ( 4, ceil(PI * channeldia / 1.2) ); // at least 4 points and at least one per 1.2mm distance
+
+    r = channeldia / 2;
+
+    for (int i=0; i <= n; i++, a += 2*PI/n, or++, ot++)
+    {
+        or->x = rchannel.x + r * cos(a);
+        or->y = rchannel.y + r * sin(a);
+        ot->x = tchannel.x + r * cos(a);
+        ot->y = tchannel.y + r * sin(a);
+    }
+
+    *or = rentry;
+    *ot = tentry;
+
+    return n + 2;
+}
+
 
 void usage (char *pname)
 {
-    printf("Cutspar allows to create a contoured notch top & bottom of two airfoils .dat\n");
-    printf("files for spar caps. The spar caps follows the curvature of the airfoil, that\n");
-    printf("is, they're not necessarily flat pieces of precured carbon fiber. Cutspar makes\n");
-    printf("sure that the features of the notches are synchronized in both .dat files so it\n");
+    printf("'cutspar' allows to create a contoured notches top & bottom of two airfoils\n");
+    printf(".dat files for spar caps. The spar caps follows the curvature of the airfoil,\n");
+    printf("that is, they're not flat pieces of precured carbon fiber. Cutspar makes sure\n");
+    printf("that the features of the notches are synchronized in both .dat files so it\n");
     printf("can be correctly cut with a CNC hot-wire cutter such as GMFC.\n\n");
 
-    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint] [-f] [-d density]\n\n", pname);
+    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint] [-f] [-d density] [-w wroot;wtip;wdia]\n\n", pname);
 
     printf("-I rootinput.dat : input airfoil file name at root of panel (airfoil .dat)\n");
     printf("-i tipinput.dat  : input airfoil file name at tip of panel (airfoil .dat)\n");
@@ -389,6 +429,7 @@ void usage (char *pname)
     printf("-t roottwist;tiptwist[;pivotpoint] : rotate the profiles by this \n   amount (degrees) around pivotpoint in percent from LE;\n   pivotpoint>0=extrados; pivotpoint<0=intrados; default=-70.\n");
     printf("-f : Add one point to close the profiles\n");
     printf("-d density : Densify such that there's a point every 'density' mm. In doubt,\n   use -d 1.2\n");
+    printf("-w wroot;wtip;wdia : Create a channel for the servo wires. wroot and wtip are\n   distances from LE to center of channel. wdia is the channel diameter. This\n   option works best with a channel positionned right behind the spar.\n");
     printf("-C specifications at root (see below for the mandatory 7 parameters)\n");
     printf("-c specifications at tip\n");
     printf("  chord : chord of at this station (root or tip)\n");
@@ -437,6 +478,8 @@ int main(int argc, char *argv[])
     int xdir, xi = -1;
     int closeprofiles = 0;
 
+    double channeldia = 0;        // Diameter of the wire channel (0=none)
+
     memset (&root, 0, sizeof(root));
     memset (&tip, 0, sizeof(tip));
 
@@ -445,7 +488,7 @@ int main(int argc, char *argv[])
         usage(argv[0]);
         exit(-1);
     }
-    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:xt:fd:")) != -1 )
+    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:xt:fd:w:v")) != -1 )
     {
         int n;
 
@@ -502,10 +545,27 @@ int main(int argc, char *argv[])
                 }
                 break;
 
+            case 'w':
+                n = sscanf(optarg, "%lf;%lf;%lf", &root.channel.x, &tip.channel.x, &channeldia );
+                if ( n != 3 ||
+                     root.channel.x < channeldia ||
+                     tip.channel.x < channeldia ||
+                     (root.channel.x+channeldia) >= root.chord ||
+                     (tip.channel.x+channeldia) >= tip.chord )
+                {
+                    printf("Invalid values for -w option\n");
+                    usage(argv[0]);
+                    exit(-1);
+                }
+                break;
+
             case 'h':
                 usage(argv[0]);
                 exit(-1);
 
+            case 'v':
+                printf("cutspar %s %s\n", VERSION, __DATE__);
+                exit(0);
         }
     }
 
@@ -602,6 +662,17 @@ int main(int argc, char *argv[])
     // sanity check
     if (root.le != tip.le)
         printf("Warning: LE is not positionned at same point number in both files. This may not\nwork. If they differ by 3 points or less, it may be okay.\n");
+
+    // Set up the wire channel at the 'y' center of the profile
+    {
+        double y1, y2;
+        y1 = find_y(root.channel.x, 0, &root.p[0], root.n);
+        y2 = find_y(root.channel.x, 1, &root.p[0], root.n);
+        root.channel.y = (y1 + y2) / 2;
+        y1 = find_y(tip.channel.x, 0, &tip.p[0], tip.n);
+        y2 = find_y(tip.channel.x, 1, &tip.p[0], tip.n);
+        tip.channel.y = (y1 + y2) / 2;
+    }
 
     // Adjust the smoothing window so that it not any closer than 3 points from the leading edge
     ns = MIN(abs(root.spar[0].fwd_idx - root.le), abs(root.spar[1].fwd_idx - root.le) );
@@ -703,12 +774,20 @@ int main(int argc, char *argv[])
                     root.op[root.on++] = prootspar[dos][j];
                     tip.op[tip.on++]   = ptipspar[dos][j];
                 }
+                // insert the wire channel at the extrados, if enabled
+                if ( channeldia != 0 && dos == 0 )
+                {
+                    int n = insertchannel (channeldia, root.channel, tip.channel, &root.op[root.on], &tip.op[tip.on]);
+                    root.on += n;
+                    tip.on += n;
+                }
                 // insert the new points aft of spar
                 for(int j=ns;j>=0;j--)
                 {
                     root.op[root.on++] = prootaft[dos][j];
                     tip.op[tip.on++]   = ptipaft[dos][j];
                 }
+
                 i = saft[dos]; // skip to aft of the spar
                 goto skip;
             }
@@ -726,6 +805,14 @@ int main(int argc, char *argv[])
                 {
                     root.op[root.on++] = prootspar[dos][j];
                     tip.op[tip.on++]   = ptipspar[dos][j];
+
+                    // insert the wire channel at the extrados, if enabled
+                    if ( j == 0 && channeldia != 0 && dos == 0 )
+                    {
+                        int n = insertchannel (channeldia, root.channel, tip.channel, &root.op[root.on], &tip.op[tip.on]);
+                        root.on += n;
+                        tip.on += n;
+                    }
                 }
                 // insert the new points forward of spar
                 for(int j=ns;j>=0;j--)

@@ -1,7 +1,7 @@
 # cutspar
 Cutspar modifies a pair of .dat airfoil files to create the contoured notches required for applying spar caps on a wing panel foam core. The spar caps follow the curvature of the airfoil, that is, they're not necessarily flat pieces of precured carbon fiber. The software deals with synchronizing the features of the notches so it can be correctly cut on the CNC hot-wire cutter.
 
-cutspar -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint]
+cutspar -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint] [-w wroot;wtip;wdia]
 
 -I rootinput.dat : input airfoil file name at root of panel (airfoil .dat)
 
@@ -18,6 +18,8 @@ cutspar -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C c
 -f : Add one point to close the profiles
 
 -d density : Densify the airfoil .dat such that there's a point every 'density' mm. In doubt, use -d 1.2  (default is to not densify)
+
+-w wroot;wtip;wdia : Create a channel for the servo wires. wroot and wtip are distances from LE to center of channel. wdia is the channel diameter. This option works best with a channel positionned right behind the spar.
 
 -C specifications at root (see below for the mandatory 7 parameters)
 
