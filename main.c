@@ -10,8 +10,9 @@ History:
  v1.1   Added -x option
  v1.2   Added -t option
  v1.3   Added -w option
+ v1.4   Added -m option
 
-Compiled on Windows 10 using Code::Blocks v17.12
+Compiled on Windows 10 using Code::Blocks v17.12 and gcc
 */
 
 #include <stdio.h>
@@ -21,7 +22,7 @@ Compiled on Windows 10 using Code::Blocks v17.12
 #include <math.h>
 #include <libgen.h>
 
-#define VERSION "v1.3"
+#define VERSION "v1.4"
 
 #define MAX(a,b) \
    ({ __typeof__ (a) _a = (a); \
@@ -229,20 +230,20 @@ err:
     return -1;
 }
 
-int savedatfile ( stationdef_t *station )
+int savedatfile ( stationdef_t *station, char *fname )
 {
     FILE *f;
 
-    printf("Saving %s ", station->o_fname);
+    printf("Saving %s ", fname);
 
-    f = fopen(station->o_fname, "w");
+    f = fopen(fname, "w");
     if(f == NULL)
     {
 
-        printf("%s : %s\n", station->o_fname, strerror(errno));
+        printf("%s : %s\n", fname, strerror(errno));
         return -1;
     }
-    fprintf(f, "%s-%s\n", basename(station->o_fname), station->desc);
+    fprintf(f, "%s-%s\n", basename(fname), station->desc);
     for(int i=0; i<station->on; i++)
     {
         fprintf(f, "%9.06f   %9.06f\n", station->op[i].x/station->chord, station->op[i].y/station->chord );
@@ -410,6 +411,17 @@ int insertchannel (double channeldia, point_t rchannel, point_t tchannel, point_
     return n + 2;
 }
 
+void appendtobasename(char *fname, const char *append)
+{
+    int i, len = strlen(append);
+
+    for (i=strlen(fname)-1;i>=0 && fname[i] != '.'; i--)
+        ;
+    if ( i == -1 )
+        i = strlen(fname)-1;
+    memmove ( fname+i+len, fname+i, strlen(fname+i)+1 ); // make room for more characters
+    memcpy ( fname+i, append, len ); // insert
+}
 
 void usage (char *pname)
 {
@@ -419,7 +431,7 @@ void usage (char *pname)
     printf("that the features of the notches are synchronized in both .dat files so it\n");
     printf("can be correctly cut with a CNC hot-wire cutter such as GMFC.\n\n");
 
-    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint] [-f] [-d density] [-w wroot;wtip;wdia]\n\n", pname);
+    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint] [-f] [-d density] [-w wroot;wtip;wdia] -m\n\n", pname);
 
     printf("-I rootinput.dat : input airfoil file name at root of panel (airfoil .dat)\n");
     printf("-i tipinput.dat  : input airfoil file name at tip of panel (airfoil .dat)\n");
@@ -430,6 +442,7 @@ void usage (char *pname)
     printf("-f : Add one point to close the profiles\n");
     printf("-d density : Densify such that there's a point every 'density' mm. In doubt,\n   use -d 1.2\n");
     printf("-w wroot;wtip;wdia : Create a channel for the servo wires. wroot and wtip are\n   distances from LE to center of channel. wdia is the channel diameter. This\n   option works best with a channel positionned right behind the spar.\n");
+    printf("-m : Also create xxx-mold.dat files. These are the same as the root and tip\n     files, but without the spar cut outs.\n");
     printf("-C specifications at root (see below for the mandatory 7 parameters)\n");
     printf("-c specifications at tip\n");
     printf("  chord : chord of at this station (root or tip)\n");
@@ -477,6 +490,7 @@ int main(int argc, char *argv[])
 
     int xdir, xi = -1;
     int closeprofiles = 0;
+    int mold = 0;  // produce the .dat for the mold (same as the airfoils but without the spars)
 
     double channeldia = 0;        // Diameter of the wire channel (0=none)
 
@@ -488,7 +502,7 @@ int main(int argc, char *argv[])
         usage(argv[0]);
         exit(-1);
     }
-    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:xt:fd:w:v")) != -1 )
+    while ((opt = getopt(argc, argv, "ho:O:i:I:c:C:xt:fd:w:vm")) != -1 )
     {
         int n;
 
@@ -562,6 +576,10 @@ int main(int argc, char *argv[])
             case 'h':
                 usage(argv[0]);
                 exit(-1);
+
+            case 'm':
+                mold = 1;
+                break;
 
             case 'v':
                 printf("cutspar %s %s\n", VERSION, __DATE__);
@@ -906,8 +924,47 @@ int main(int argc, char *argv[])
     }
 
     // Save the output files
-    savedatfile(&root);
-    savedatfile(&tip);
+    savedatfile(&root, root.o_fname);
+    savedatfile(&tip,  tip.o_fname);
+
+    if ( ! mold )
+        return 0;      // We're done, exit.
+
+    // We're requested to also create .dat files for the mold (female part).
+    // The mold consists of the same profile, with no spar notches, with augmented
+    // density (where appropriate), and with the rotation (twist) applied.
+
+    root.on = tip.on = 0;  // Start from scratch
+
+    for (int i=0; i<root.n; i++) // Copy all points
+    {
+        root.op[root.on++] = root.p[i];
+        tip.op[tip.on++] = tip.p[i];
+    }
+
+    if ( closeprofiles )
+    {
+        root.op[root.on++] = root.p[0];
+        tip.op[tip.on++] = tip.p[0];
+    }
+
+    // Apply the twist
+    twist(&root.op[0], root.on, root.twist, pivotpointpc, root.chord);
+    twist(&tip.op[0],  tip.on,  tip.twist,  pivotpointpc, tip.chord);
+
+    // Save the mold's .dat files
+    {
+        char fname[MAX_PATH];
+
+        strcpy ( fname, root.o_fname);
+        appendtobasename(fname, "-mold");
+        savedatfile(&root, fname); // Save the root's xxx-mold.dat file
+
+        strcpy ( fname, tip.o_fname);
+        appendtobasename(fname, "-mold");
+        savedatfile(&tip, fname); // Save the root's xxx-mold.dat file
+    }
 
     return 0;
 }
+
