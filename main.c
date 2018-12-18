@@ -11,6 +11,7 @@ History:
  v1.2   Added -t option
  v1.3   Added -w option
  v1.4   Added -m option
+ v1.5   Remove the first & last data point in the spar (for GMFC compatibility)
 
 Compiled on Windows 10 using Code::Blocks v17.12 and gcc
 */
@@ -22,7 +23,7 @@ Compiled on Windows 10 using Code::Blocks v17.12 and gcc
 #include <math.h>
 #include <libgen.h>
 
-#define VERSION "v1.4"
+#define VERSION "v1.5"
 
 #define MAX(a,b) \
    ({ __typeof__ (a) _a = (a); \
@@ -397,7 +398,7 @@ int insertchannel (double channeldia, point_t rchannel, point_t tchannel, point_
 
     r = channeldia / 2;
 
-    for (int i=0; i <= n; i++, a += 2*PI/n, or++, ot++)
+    for (int i=0; i <= n; i++, a -= 2*PI/n, or++, ot++)
     {
         or->x = rchannel.x + r * cos(a);
         or->y = rchannel.y + r * sin(a);
@@ -789,8 +790,11 @@ int main(int argc, char *argv[])
                 // insert the spar
                 for(int j=nspar[dos]; j>=0;j--)
                 {
-                    root.op[root.on++] = prootspar[dos][j];
-                    tip.op[tip.on++]   = ptipspar[dos][j];
+                    if ( j != 1 && j != nspar[dos]-1) // skip the first and last data point in the spar
+                    {
+                        root.op[root.on++] = prootspar[dos][j];
+                        tip.op[tip.on++]   = ptipspar[dos][j];
+                    }
                 }
                 // insert the wire channel at the extrados, if enabled
                 if ( channeldia != 0 && dos == 0 )
@@ -821,8 +825,11 @@ int main(int argc, char *argv[])
                 // insert the spar
                 for(int j=0; j<=nspar[dos];j++)
                 {
-                    root.op[root.on++] = prootspar[dos][j];
-                    tip.op[tip.on++]   = ptipspar[dos][j];
+                    if ( j != 1 && j != nspar[dos]-1) // skip the first and last data point in the spar
+                    {
+                        root.op[root.on++] = prootspar[dos][j];
+                        tip.op[tip.on++]   = ptipspar[dos][j];
+                    }
 
                     // insert the wire channel at the extrados, if enabled
                     if ( j == 0 && channeldia != 0 && dos == 0 )
