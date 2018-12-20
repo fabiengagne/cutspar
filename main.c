@@ -23,7 +23,7 @@ Compiled on Windows 10 using Code::Blocks v17.12 and gcc
 #include <math.h>
 #include <libgen.h>
 
-#define VERSION "v1.5"
+#define VERSION "v1.6"
 
 #define MAX(a,b) \
    ({ __typeof__ (a) _a = (a); \
@@ -61,7 +61,7 @@ typedef struct
 
     char desc[81];  // first line of the .dat file (text description)
     double chord;
-    double twist;   // rotation angle of the profile (washout)
+    double twist;   // rotation angle of the airfoil (washout)
 
     spar_t spar[2];  // 0=extrados, 1=intrados
 
@@ -398,7 +398,7 @@ int insertchannel (double channeldia, point_t rchannel, point_t tchannel, point_
 
     r = channeldia / 2;
 
-    for (int i=0; i <= n; i++, a -= 2*PI/n, or++, ot++)
+    for (int i=0; i <= n; i++, a -= 2*PI/n, or++, ot++) // this is a circle with n points
     {
         or->x = rchannel.x + r * cos(a);
         or->y = rchannel.y + r * sin(a);
@@ -438,9 +438,9 @@ void usage (char *pname)
     printf("-i tipinput.dat  : input airfoil file name at tip of panel (airfoil .dat)\n");
     printf("-O rootoutput.dat : output airfoil file names for root\n");
     printf("-o tipoutput.dat : output airfoil file names for tip\n");
-    printf("-x : Exit and re-enter the leading edge. Allows the LE to cool down before\n   cutting the other half of the profile.\n");
-    printf("-t roottwist;tiptwist[;pivotpoint] : rotate the profiles by this \n   amount (degrees) around pivotpoint in percent from LE;\n   pivotpoint>0=extrados; pivotpoint<0=intrados; default=-70.\n");
-    printf("-f : Add one point to close the profiles\n");
+    printf("-x : Exit and re-enter the leading edge. Allows the LE to cool down before\n   cutting the other half of the airfoil.\n");
+    printf("-t roottwist;tiptwist[;pivotpoint] : rotate the airfoils by this \n   amount (degrees) around pivotpoint in percent from LE;\n   pivotpoint>0=extrados; pivotpoint<0=intrados; default=-70.\n");
+    printf("-f : Add one point to close the airfoils at the trailing edge\n");
     printf("-d density : Densify such that there's a point every 'density' mm. In doubt,\n   use -d 1.2\n");
     printf("-w wroot;wtip;wdia : Create a channel for the servo wires. wroot and wtip are\n   distances from LE to center of channel. wdia is the channel diameter. This\n   option works best with a channel positionned right behind the spar.\n");
     printf("-m : Also create xxx-mold.dat files. These are the same as the root and tip\n     files, but without the spar cut outs.\n");
@@ -490,7 +490,8 @@ int main(int argc, char *argv[])
     int sfwd[2], saft[2]; // indexes where the smoothing ends, before and after the spar
 
     int xdir, xi = -1;
-    int closeprofiles = 0;
+    int closeairfoils = 0;
+
     int mold = 0;  // produce the .dat for the mold (same as the airfoils but without the spars)
 
     double channeldia = 0;        // Diameter of the wire channel (0=none)
@@ -547,7 +548,7 @@ int main(int argc, char *argv[])
                 break;
 
             case 'f':
-                closeprofiles = 1;
+                closeairfoils = 1;
                 break;
 
             case 'd':
@@ -682,7 +683,7 @@ int main(int argc, char *argv[])
     if (root.le != tip.le)
         printf("Warning: LE is not positionned at same point number in both files. This may not\nwork. If they differ by 3 points or less, it may be okay.\n");
 
-    // Set up the wire channel at the 'y' center of the profile
+    // Set up the wire channel at the 'y' center of the airfoil
     {
         double y1, y2;
         y1 = find_y(root.channel.x, 0, &root.p[0], root.n);
@@ -868,7 +869,7 @@ int main(int argc, char *argv[])
         i++;
     }
 
-    if ( closeprofiles )
+    if ( closeairfoils )
     {
         root.op[root.on++] = root.p[0];
         tip.op[tip.on++] = tip.p[0];
@@ -896,7 +897,7 @@ int main(int argc, char *argv[])
         root.on += 5;
         tip.on += 5;
 
-        /*  --      The following will create a shape like this in front of the LE, outside the profile.
+        /*  --      The following will create a shape like this in front of the LE, outside the airfoil.
            |   \    It results into a geometry that exit the LE at 45 degrees, and re-enter at 45 degrees,
            |   /    approximately.
             --
@@ -934,11 +935,11 @@ int main(int argc, char *argv[])
     savedatfile(&root, root.o_fname);
     savedatfile(&tip,  tip.o_fname);
 
-    if ( ! mold )
-        return 0;      // We're done, exit.
+    if ( ! mold )   // Dont't need to prepare mold files^
+        return 0;   // We're done, exit.
 
     // We're requested to also create .dat files for the mold (female part).
-    // The mold consists of the same profile, with no spar notches, with augmented
+    // The mold consists of the same airfoil, with no spar notches, with augmented
     // density (where appropriate), and with the rotation (twist) applied.
 
     root.on = tip.on = 0;  // Start from scratch
@@ -949,10 +950,10 @@ int main(int argc, char *argv[])
         tip.op[tip.on++] = tip.p[i];
     }
 
-    if ( closeprofiles )
+    if ( closeairfoils )
     {
-        root.op[root.on++] = root.p[0];
-        tip.op[tip.on++] = tip.p[0];
+        root.op[root.on++] = root.op[0];
+        tip.op[tip.on++] = tip.op[0];
     }
 
     // Apply the twist
