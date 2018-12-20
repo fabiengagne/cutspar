@@ -1,9 +1,10 @@
 /*
-cutspar  by Fabien Gagne Nov 2018  released under the GNU GPLv3
+cutspar  by Fabien Gagné Nov 2018  released under the GNU GPLv3
 
-cutspar allows to create a notch top & bottom of two airfoils .dat files for spar
-caps. It makes sure that the features of the notches are synchronized in both .dat
-files so it can be correctly cut with a CNC hot-wire cutter.
+cutspar allows to create a notch top & bottom of two airfoils .dat
+files for spar caps. The notch follows the contour of the airfail. It makes
+sure that the features of the notches are synchronized in both .dat files so
+it can be correctly cut with a CNC hot-wire cutter.
 
 History:
  v1.0   Initial release
@@ -12,6 +13,8 @@ History:
  v1.3   Added -w option
  v1.4   Added -m option
  v1.5   Remove the first & last data point in the spar (for GMFC compatibility)
+ v1.6   Grammatical changes
+ v1.7   Fixed bug: the tip's spar thickness was erroneously set equal to root's
 
 Compiled on Windows 10 using Code::Blocks v17.12 and gcc
 */
@@ -23,7 +26,7 @@ Compiled on Windows 10 using Code::Blocks v17.12 and gcc
 #include <math.h>
 #include <libgen.h>
 
-#define VERSION "v1.6"
+#define VERSION "v1.7"
 
 #define MAX(a,b) \
    ({ __typeof__ (a) _a = (a); \
@@ -432,7 +435,7 @@ void usage (char *pname)
     printf("that the features of the notches are synchronized in both .dat files so it\n");
     printf("can be correctly cut with a CNC hot-wire cutter such as GMFC.\n\n");
 
-    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint] [-f] [-d density] [-w wroot;wtip;wdia] -m\n\n", pname);
+    printf("%s -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C chord;efwd;eaft;ethk;ifwd;iaft;ithk -c chord;efwd;eaft;ethk;ifwd;iaft;ithk [-x] [-t roottwist;tiptwist[;pivotpoint] [-f] [-d density] [-w wroot;wtip;wdia] [-m]\n\n", pname);
 
     printf("-I rootinput.dat : input airfoil file name at root of panel (airfoil .dat)\n");
     printf("-i tipinput.dat  : input airfoil file name at tip of panel (airfoil .dat)\n");
@@ -769,7 +772,7 @@ int main(int argc, char *argv[])
 
             // interpolate their 'y' coordinates
             prootspar[dos][i].y = find_y(prootspar[dos][i].x, dos, &root.p[0], root.n) + (dos==0?-1:1)*root.spar[dos].thick;
-            ptipspar[dos][i].y  = find_y(ptipspar[dos][i].x, dos, &tip.p[0], tip.n)   + (dos==0?-1:1)*root.spar[dos].thick;
+            ptipspar[dos][i].y  = find_y(ptipspar[dos][i].x, dos, &tip.p[0], tip.n)   + (dos==0?-1:1)*tip.spar[dos].thick;
         }
     }
 

@@ -11,11 +11,11 @@ cutspar -I rootinput.dat -i tipinput.dat -O rootoutput.dat -o tipoutput.dat -C c
 
 -o tipoutput.dat : output airfoil file names for tip
 
--x Exit and re-enter the leading edge. Allows the LE to cool down before cutting the other half of the profile.
+-x Exit and re-enter the leading edge. Allows the LE to cool down before cutting the other half of the airfoil.
 
 -t roottwist;tiptwist[;pivotpoint] : Rotates the airfoil (washout) around a pivot point. Negative angle = LE down. pivotpoint is in percent from LE, and negative means to rotate at the intrados skin, positive at the extrados skin (default=-70).
 
--f : Add one point to close the profiles
+-f : Add one point to close the airfoil
 
 -d density : Densify the airfoil .dat such that there's a point every 'density' mm. In doubt, use -d 1.2  (default is to not densify)
 
